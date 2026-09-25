@@ -1,0 +1,242 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum BedStatus {
+  EMPTY
+  OCCUPIED
+  RESERVED
+  DISABLED
+}
+
+enum StudentStatus {
+  ACTIVE
+  MOVED
+  DISCHARGED
+  GRADUATED
+  ACADEMIC_LEAVE
+  OTHER
+}
+
+enum PaymentType {
+  CASH
+  CARD
+  TRANSFER
+  OTHER
+}
+
+model Role {
+  id          String @id @default(cuid())
+  name        String @unique
+  description String?
+  users       User[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model User {
+  id           String @id @default(cuid())
+  fullName     String
+  username     String @unique
+  passwordHash String
+  roleId       String
+  role         Role   @relation(fields: [roleId], references: [id])
+  status       UserStatus @default(ACTIVE)
+  assignedBuildingId String?
+  assignedBlockId    String?
+  assignedFloorId    String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  payments      Payment[]
+  auditLogs     AuditLog[]
+  imports       ImportJob[]
+}
+
+model Building {
+  id           String @id @default(cuid())
+  name         String
+  number       String
+  address      String
+  floorCount   Int
+  note         String?
+  isActive     Boolean @default(true)
+  deletedAt    DateTime?
+  blocks       Block[]
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([number, deletedAt])
+}
+
+model Block {
+  id          String @id @default(cuid())
+  name        String
+  number      String
+  note        String?
+  buildingId  String
+  building    Building @relation(fields: [buildingId], references: [id])
+  floors      Floor[]
+  deletedAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([buildingId, number, deletedAt])
+}
+
+model Floor {
+  id          String @id @default(cuid())
+  floorNumber Int
+  roomCount   Int
+  blockId     String
+  block       Block @relation(fields: [blockId], references: [id])
+  rooms       Room[]
+  deletedAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([blockId, floorNumber, deletedAt])
+}
+
+model Room {
+  id          String @id @default(cuid())
+  roomNumber  String
+  roomType    String
+  capacity    Int
+  note        String?
+  buildingId  String
+  blockId     String
+  floorId     String
+  building    Building @relation(fields: [buildingId], references: [id])
+  block       Block @relation(fields: [blockId], references: [id])
+  floor       Floor @relation(fields: [floorId], references: [id])
+  beds        RoomBed[]
+  accommodations StudentAccommodation[]
+  deletedAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([floorId, roomNumber, deletedAt])
+}
+
+model RoomBed {
+  id        String @id @default(cuid())
+  roomId    String
+  bedNumber Int
+  status    BedStatus @default(EMPTY)
+  room      Room @relation(fields: [roomId], references: [id])
+  accommodation StudentAccommodation[]
+  deletedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([roomId, bedNumber, deletedAt])
+}
+
+model Sport {
+  id        String @id @default(cuid())
+  name      String @unique
+  students  Student[]
+}
+
+model Student {
+  id            String @id @default(cuid())
+  fullName      String
+  pinfl         String
+  faculty       String
+  course        Int
+  phone         String
+  email         String?
+  gender        String
+  birthDate     DateTime
+  privilege     String?
+  interest      String?
+  totalPayment  Decimal @db.Decimal(14, 2) @default(0)
+  paidAmount    Decimal @db.Decimal(14, 2) @default(0)
+  status        StudentStatus @default(ACTIVE)
+  deletedAt     DateTime?
+  sportId       String?
+  sport         Sport? @relation(fields: [sportId], references: [id])
+
+  accommodations StudentAccommodation[]
+  payments       Payment[]
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([pinfl, status, deletedAt])
+}
+
+model StudentAccommodation {
+  id           String @id @default(cuid())
+  studentId    String
+  roomId       String
+  bedId        String
+  movedInAt    DateTime
+  movedOutAt   DateTime?
+  isCurrent    Boolean @default(true)
+  note         String?
+  student      Student @relation(fields: [studentId], references: [id])
+  room         Room @relation(fields: [roomId], references: [id])
+  bed          RoomBed @relation(fields: [bedId], references: [id])
+  createdAt    DateTime @default(now())
+
+  @@index([studentId, isCurrent])
+}
+
+model Payment {
+  id          String @id @default(cuid())
+  studentId   String
+  amount      Decimal @db.Decimal(14,2)
+  paidAt      DateTime
+  type        PaymentType @default(CASH)
+  note        String?
+  createdById String
+  student     Student @relation(fields: [studentId], references: [id])
+  createdBy   User    @relation(fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+}
+
+model AuditLog {
+  id          String @id @default(cuid())
+  action      String
+  entity      String
+  entityId    String?
+  oldValue    Json?
+  newValue    Json?
+  reason      String?
+  userId      String
+  user        User @relation(fields: [userId], references: [id])
+  createdAt   DateTime @default(now())
+}
+
+model ImportJob {
+  id               String @id @default(cuid())
+  fileName         String
+  fileType         String
+  totalRows        Int
+  successRows      Int
+  failedRows       Int
+  uploadedById     String
+  uploadedBy       User @relation(fields: [uploadedById], references: [id])
+  errors           ImportError[]
+  createdAt        DateTime @default(now())
+}
+
+model ImportError {
+  id           String @id @default(cuid())
+  importJobId  String
+  rowNumber    Int
+  field        String
+  message      String
+  importJob    ImportJob @relation(fields: [importJobId], references: [id])
+}
