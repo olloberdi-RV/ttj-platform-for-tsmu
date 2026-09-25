@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import multer from 'multer';
-import xlsx from 'xlsx';
+import ExcelJS from 'exceljs';
 import mammoth from 'mammoth';
 import { parse as parseCsv } from 'csv-parse/sync';
 import { authRequired } from '../middleware/auth.js';
@@ -13,6 +13,38 @@ const upload = multer({
 });
 
 const expectedFields = ['fullName', 'pinfl', 'faculty', 'course', 'roomNumber', 'sport', 'privilege', 'totalPayment', 'paidAmount'];
+
+function normalizeSpreadsheetValue(value: unknown) {
+  if (value == null) return '';
+  if (typeof value === 'object' && value && 'text' in value) return String((value as { text: string }).text).trim();
+  return String(value).trim();
+}
+
+async function parseXlsxRows(buffer: Buffer): Promise<Array<Record<string, string>>> {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer);
+  const worksheet = workbook.worksheets[0];
+  if (!worksheet) return [];
+
+  const headerRow = worksheet.getRow(1);
+  const headers = headerRow.values
+    .slice(1)
+    .map((value) => normalizeSpreadsheetValue(value))
+    .filter(Boolean);
+
+  const rows: Array<Record<string, string>> = [];
+  for (let rowNumber = 2; rowNumber <= worksheet.rowCount; rowNumber += 1) {
+    const row = worksheet.getRow(rowNumber);
+    const data = Object.fromEntries(
+      headers.map((header, index) => [header, normalizeSpreadsheetValue(row.getCell(index + 1).value)]),
+    );
+    if (Object.values(data).some((v) => v !== '')) {
+      rows.push(data);
+    }
+  }
+
+  return rows;
+}
 
 function validateRow(row: Record<string, string>, usedPinfls: Set<string>) {
   const errors: Array<{ field: string; message: string }> = [];
@@ -117,9 +149,7 @@ importRouter.post('/import/xlsx', upload.single('file'), async (req, res) => {
   if (req.file.mimetype === 'text/csv') {
     rows = parseCsv(req.file.buffer.toString('utf8'), { columns: true, skip_empty_lines: true });
   } else {
-    const wb = xlsx.read(req.file.buffer, { type: 'buffer' });
-    const ws = wb.Sheets[wb.SheetNames[0]];
-    rows = xlsx.utils.sheet_to_json(ws);
+    rows = await parseXlsxRows(req.file.buffer);
   }
 
   const preview = req.query.preview === 'true';
